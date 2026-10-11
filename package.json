@@ -1,0 +1,16 @@
+{
+    "name": "@barnuri/zod-decorators",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "peerDependencies": {
+        "zod": "^4.4.3"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.2.0",
+        "@types/node": "^22.0.0",
+        "typescript": "~5.9.2",
+        "zod": "^4.4.3"
+    }
+}
