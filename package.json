@@ -1,5 +1,6 @@
 {
     "name": "@barnuri/zod-decorators",
+    "license": "MIT",
     "type": "module",
     "exports": {
         ".": "./src/index.ts"
