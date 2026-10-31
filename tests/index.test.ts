@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, expectTypeOf, test } from 'bun:test';
 import { z } from 'zod';
-import { ZodDto, ZodField, ZodObject, createZodDto, getZodSchema } from '../src/index.js';
+import { ZodDto, ZodField, ZodObject, createZodDto, getZodSchema, typedSchema } from '../src/index.js';
 
 const userSchema = z.object({
     id: z.string().uuid(),
@@ -148,5 +148,50 @@ describe('ZodObject refine', () => {
 
     test('keeps the schema an object, so it still nests as a field', () => {
         expect(RangeDto.schema.shape).toHaveProperty('from');
+    });
+});
+
+@ZodObject()
+class ListQueryDto extends ZodDto {
+    @ZodField(z.string())
+    tenant!: string;
+
+    @ZodField(z.string().nullable().optional())
+    search?: string | null;
+
+    @ZodField(z.coerce.number().int().min(1).default(1))
+    page!: number;
+}
+
+describe('typedSchema', () => {
+    test('returns the class schema itself', () => {
+        expect<unknown>(typedSchema(ListQueryDto)).toBe(ListQueryDto.schema);
+    });
+
+    test('types the output from the class fields', () => {
+        const schema = typedSchema<ListQueryDto, 'page'>(ListQueryDto);
+
+        expectTypeOf<z.output<typeof schema>>().toEqualTypeOf<{
+            tenant: string;
+            search?: string | null | undefined;
+            page: number;
+        }>();
+        expect(schema.parse({ tenant: 't1', page: '2' })).toEqual({ tenant: 't1', page: 2 });
+    });
+
+    test('lets the input omit a defaulted field', () => {
+        const schema = typedSchema<ListQueryDto, 'page'>(ListQueryDto);
+
+        expectTypeOf<z.input<typeof schema>>().toEqualTypeOf<{
+            tenant: string;
+            search?: string | null | undefined;
+            page?: number | undefined;
+        }>();
+        expect(schema.parse({ tenant: 't1' })).toEqual({ tenant: 't1', page: 1 });
+    });
+
+    test('types the shape, so a field schema can be reused', () => {
+        expectTypeOf(typedSchema(ListQueryDto).shape.tenant).toEqualTypeOf<z.ZodType<string, string>>();
+        expect(typedSchema(ListQueryDto).shape.tenant.parse('t1')).toBe('t1');
     });
 });

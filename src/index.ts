@@ -43,6 +43,23 @@ export type ZodFieldSource = z.ZodType | SchemaCarryingClass | readonly [z.ZodTy
 
 type ZodDtoConstructor<DtoT> = (new () => DtoT) & { readonly schema: z.ZodType };
 
+type OptionalKeys<TDto> = { [TKey in keyof TDto]-?: {} extends Pick<TDto, TKey> ? TKey : never }[keyof TDto];
+
+type FieldValue<TDto, TKey extends keyof TDto> = Exclude<TDto[TKey], undefined>;
+
+/**
+ * The object shape `typedSchema` gives a DTO's schema: one field schema per class
+ * property, optional where the property is, and defaulted (omittable on input) for
+ * the `TDefaultedKeys`.
+ */
+export type TypedDtoShape<TDto, TDefaultedKeys extends keyof TDto = never> = {
+    -readonly [TKey in keyof TDto]-?: TKey extends TDefaultedKeys
+        ? z.ZodDefault<z.ZodType<FieldValue<TDto, TKey>, FieldValue<TDto, TKey>>>
+        : TKey extends OptionalKeys<TDto>
+          ? z.ZodOptional<z.ZodType<FieldValue<TDto, TKey>, FieldValue<TDto, TKey>>>
+          : z.ZodType<TDto[TKey], TDto[TKey]>;
+};
+
 type FieldMetadata = Map<string | symbol, z.ZodType>;
 type ObjectDecorator = (value: Function, context: ClassDecoratorContext) => void;
 type ObjectMetadata = DecoratorMetadataObject & {
@@ -177,6 +194,19 @@ export class ZodDto {
     static safeParse<DtoT>(this: ZodDtoConstructor<DtoT>, input: unknown): z.ZodSafeParseResult<DtoT> {
         return getZodSchema(this).safeParse(input) as z.ZodSafeParseResult<DtoT>;
     }
+}
+
+/**
+ * Returns a DTO's schema typed from the class, for code that infers types from a
+ * schema (`z.infer`, `z.input`) rather than naming the class. `TDefaultedKeys` names
+ * the fields declared with `.default()`, which a caller may omit.
+ */
+export function typedSchema<TDto, TDefaultedKeys extends keyof TDto = never>(
+    dto: ZodDtoConstructor<TDto>,
+): z.ZodObject<TypedDtoShape<TDto, TDefaultedKeys>> {
+    // WHY: the shape is built from decorator metadata at runtime, so only the class's
+    // declared fields can type it.
+    return getZodSchema(dto) as unknown as z.ZodObject<TypedDtoShape<TDto, TDefaultedKeys>>;
 }
 
 /** Returns the object schema generated for a class annotated with @ZodObject. */

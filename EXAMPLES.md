@@ -13,24 +13,24 @@ which consumes `<Dto>.schema` on the route.
 import { ZodDto, ZodField, ZodObject } from '@barnuri/zod-decorators';
 import { z } from 'zod';
 
-@ZodObject({ description: 'A tenant as a selectable filter value.' })
-export class TenantOptionDto extends ZodDto {
-    @ZodField(z.string(), { description: 'CloudInfra tenant id.' })
-    ci_tenant_id!: string;
+@ZodObject({ description: 'A user as a selectable filter value.' })
+export class UserOptionDto extends ZodDto {
+    @ZodField(z.string(), { description: 'User id.' })
+    user_id!: string;
 
     @ZodField(z.string().nullable().default(null), {
-        description: 'Tenant display name, null when tenant_info has no record.',
+        description: 'User display name, null when the user has no profile.',
     })
-    ci_tenant_name!: string | null;
+    display_name!: string | null;
 }
 ```
 
 Three things this buys you:
 
 ```ts
-TenantOptionDto.schema; // the Zod schema — pass to @Query/@Body/@Response
-TenantOptionDto.parse(row); // validated, defaults applied, unknown keys stripped
-function render(option: TenantOptionDto) {} // the class IS the type
+UserOptionDto.schema; // the Zod schema — pass to @Query/@Body/@Response
+UserOptionDto.parse(row); // validated, defaults applied, unknown keys stripped
+function render(option: UserOptionDto) {} // the class IS the type
 ```
 
 `extends ZodDto` is what makes `.schema` / `.parse` / `.safeParse` type-check.
@@ -94,10 +94,10 @@ author couldn't guess from the field name:
 
 ```json
 {
-    "share_of_conversations": {
+    "share_of_orders": {
         "type": "number",
         "default": 0,
-        "description": "Share of this dimension's own conversation total, not the page total — message-derived dimensions are non-additive, so a conversation can span several values."
+        "description": "Share of this category's own order total, not the page total. An order can span several categories, so the shares do not add up to 1."
     }
 }
 ```
@@ -125,6 +125,30 @@ export class RangeDto extends ZodDto {
     @ZodField(z.number().optional()) until?: number;
 }
 ```
+
+## A typed schema for inference: `typedSchema`
+
+`<Dto>.schema` is typed as a generic object, which is enough to pass to a route.
+Code that *infers* a type from a schema (`z.infer`, `z.input`, an endpoint
+descriptor typed by its schemas) needs `typedSchema`, which types the same schema
+from the class fields. Name the fields that carry a `.default()` so the input side
+may omit them:
+
+```ts
+@ZodObject()
+export class ListUsersQueryDto extends ZodDto {
+    @ZodField(z.coerce.number().int().min(1).default(1)) page!: number;
+    @ZodField(z.string().optional()) search?: string;
+}
+
+const input = typedSchema<ListUsersQueryDto, 'page'>(ListUsersQueryDto);
+type Out = z.output<typeof input>; // { page: number; search?: string }
+type In = z.input<typeof input>; // { page?: number; search?: string }
+input.shape.search; // typed field schema, reusable in another DTO
+```
+
+It returns `<Dto>.schema` itself; only the type differs. The type follows the
+class, so a field whose schema disagrees with its property type is not caught here.
 
 ## Inheritance does not carry fields
 
@@ -169,10 +193,50 @@ shapes become classes.
 
 ```ts
 // Don't: a type declared separately from the schema. The class is the type.
-export type TenantOption = z.infer<typeof tenantOptionSchema>;
+export type UserOption = z.infer<typeof userOptionSchema>;
 
 // Don't: reading the schema through the helper when the class extends ZodDto.
-getZodSchema(TenantOptionDto); // use TenantOptionDto.schema
+getZodSchema(UserOptionDto); // use UserOptionDto.schema
 
 // Don't: a DTO no route and no caller references. Delete it.
 ```
+
+## zod 3 schemas (`@barnuri/zod-decorators/v3`) — for a2ui
+
+`@a2ui/react` and `@a2ui/web_core` read zod 3 internals (`_def.typeName`), so a
+zod 4 schema does not work there. For those shapes import the decorators from the
+`v3` subpath and the field schemas from `zod/v3` (the zod 4 package's bundled zod
+3, no extra dependency). Everything else keeps the main entry.
+
+```ts
+import { z } from 'zod/v3';
+import { ZodDto, ZodField, ZodObject } from '@barnuri/zod-decorators/v3';
+
+@ZodObject({ description: 'Props of the metric card component.' })
+export class MetricCardPropsDto extends ZodDto {
+    @ZodField(z.string(), { description: 'Card title.' }) title!: string;
+    @ZodField(z.number().optional(), { description: 'Value to show.' }) value?: number;
+}
+
+MetricCardPropsDto.schema; // a zod 3 ZodObject, ready for the a2ui catalog
+```
+
+Same API as the main entry (`ZodObject`, `ZodField`, `ZodDto`, `getZodSchema`,
+`typedSchema`), without the legacy `createZodDto`. `unknownKeys` maps to zod 3's
+`.passthrough()` / `.strict()`. Never mix the two: a `v3` DTO's fields are
+`zod/v3` schemas and its nested DTOs are `v3` DTOs.
+
+`refine` behaves as it does in zod 4:
+
+- The schema stays a `ZodObject`, so a refined DTO nests as a field and a2ui still
+  binds its props. A hand-written top-level `.refine()` is a `ZodEffects`, which
+  a2ui treats as a static value.
+- The rules run only when every field parsed and no unknown key was rejected.
+- `.extend`, `.strict`, `.strip`, `.passthrough`, `.catchall`, `.required` and
+  `.describe` keep the rules. `.extend` throws when it overwrites a field.
+- `.merge`, `.pick`, `.omit`, `.partial` and `.deepPartial` throw rather than
+  return a schema without the rules. Declare a new DTO instead.
+
+In an a2ui component, never use one DTO class for two fields. zod-to-json-schema
+prints the second use as a root-relative `$ref`, and the a2ui catalog moves the
+props under `allOf`, so that `$ref` points nowhere. Declare a second class.

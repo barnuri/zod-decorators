@@ -3,7 +3,8 @@
     "license": "MIT",
     "type": "module",
     "exports": {
-        ".": "./src/index.ts"
+        ".": "./src/index.ts",
+        "./v3": "./src/v3.ts"
     },
     "peerDependencies": {
         "zod": "^4.4.3"
